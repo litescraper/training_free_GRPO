@@ -56,12 +56,14 @@ class HierarchicalExperienceLibrary:
         - Web Search: "Use site: operator to search within specific domains"
     """
 
-    def __init__(self, embedding_function=None):
+    def __init__(self, embedding_function=None, embedding_dim=256):
         """
         Args:
             embedding_function: Function to convert text → vector (e.g., sentence-transformers)
+            embedding_dim: Fixed embedding dimension (default: 256)
         """
         self.embedding_fn = embedding_function or self._simple_embedding
+        self.embedding_dim = embedding_dim
 
         # Hierarchical storage
         self.meta_experiences: List[Experience] = []
@@ -71,6 +73,10 @@ class HierarchicalExperienceLibrary:
         # Flat index for fast retrieval
         self.all_experiences: List[Experience] = []
         self.experience_embeddings: Optional[np.ndarray] = None
+
+        # Vocabulary for consistent embedding (fixed size)
+        self._vocab = None
+        self._vocab_to_idx = None
 
     def add_experience(
         self,
@@ -365,30 +371,21 @@ class HierarchicalExperienceLibrary:
 
     def _simple_embedding(self, text: str) -> np.ndarray:
         """
-        Simple embedding function using TF-IDF-like approach.
+        Simple embedding function using TF-IDF-like approach with fixed dimension.
 
         In practice, replace with sentence-transformers or OpenAI embeddings.
+        Uses hashing trick to ensure consistent dimensionality.
         """
         # Tokenize
         words = text.lower().split()
 
-        # Create vocabulary from all experiences (simplified)
-        vocab = set()
-        for exp in self.all_experiences:
-            vocab.update(exp.content.lower().split())
-
-        if not vocab:
-            vocab = set(words)
-
-        vocab_list = sorted(vocab)
-        vocab_to_idx = {word: idx for idx, word in enumerate(vocab_list)}
-
-        # Create vector
-        vector = np.zeros(max(len(vocab_to_idx), 100))  # Min size 100
+        # Use hashing trick for fixed-size embedding
+        vector = np.zeros(self.embedding_dim)
 
         for word in words:
-            if word in vocab_to_idx:
-                vector[vocab_to_idx[word]] += 1
+            # Hash word to index in [0, embedding_dim)
+            hash_val = hash(word) % self.embedding_dim
+            vector[hash_val] += 1
 
         # Normalize
         norm = np.linalg.norm(vector)

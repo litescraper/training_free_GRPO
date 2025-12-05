@@ -11,6 +11,21 @@ class LLM:
             base_url=EnvUtils.get_env("UTU_LLM_BASE_URL"),
         )
 
+    def generate(self, prompt, max_tokens=16384, temperature=0, max_retries=5):
+        """
+        Generate a response for a given prompt (convenience wrapper for chat).
+
+        Args:
+            prompt: String prompt
+            max_tokens: Maximum tokens in response
+            temperature: Sampling temperature
+            max_retries: Maximum number of retry attempts
+
+        Returns:
+            Response text
+        """
+        return self.chat(prompt, max_tokens=max_tokens, temperature=temperature, max_retries=max_retries)
+
     def chat(self, messages_or_prompt, max_tokens=16384, temperature=0, max_retries=5, return_reasoning=False):
         """
         Send a chat completion request with retry logic and exponential backoff.
