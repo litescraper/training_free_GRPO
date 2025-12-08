@@ -264,30 +264,184 @@ async def main(args):
             print(f"  {difficulty.capitalize():8s}: {stats['correct']:3d}/{stats['total']:3d} = {pass_rate:.2%}")
 
     # Save final evaluation results
+    results_data = {
+        "dataset": args.dataset,
+        "pass_k": args.pass_k,
+        "eval_stats": eval_stats,
+        "difficulty_performance": {
+            k: {
+                "correct": v["correct"],
+                "total": v["total"],
+                "pass_rate": v["correct"] / v["total"] if v["total"] > 0 else 0
+            }
+            for k, v in difficulty_performance.items()
+        },
+        "retrieval_stats": {
+            "avg_experiences": sum(retrieval_stats["num_experiences_retrieved"]) / len(retrieval_stats["num_experiences_retrieved"]),
+            "difficulty_distribution": dict(retrieval_stats["difficulty_distribution"]),
+        }
+    }
+
     results_filename = f"data/{args.domain}/eval/{args.experiment_name}_results.json"
     with open(results_filename, "w") as f:
-        json.dump({
-            "dataset": args.dataset,
-            "pass_k": args.pass_k,
-            "eval_stats": eval_stats,
-            "difficulty_performance": {
-                k: {
-                    "correct": v["correct"],
-                    "total": v["total"],
-                    "pass_rate": v["correct"] / v["total"] if v["total"] > 0 else 0
-                }
-                for k, v in difficulty_performance.items()
-            },
-            "retrieval_stats": {
-                "avg_experiences": sum(retrieval_stats["num_experiences_retrieved"]) / len(retrieval_stats["num_experiences_retrieved"]),
-                "difficulty_distribution": dict(retrieval_stats["difficulty_distribution"]),
-            }
-        }, f, indent=2)
+        json.dump(results_data, f, indent=2)
     print(f"\nSaved evaluation results to {results_filename}")
 
-    print(f"\n{'='*60}")
-    print(f"Evaluation Complete!")
-    print(f"{'='*60}")
+    # Try to load baseline for comparison
+    baseline_data = None
+    if args.baseline_file:
+        if os.path.exists(args.baseline_file):
+            with open(args.baseline_file) as f:
+                baseline_data = json.load(f)
+            print(f"Loaded baseline from {args.baseline_file}")
+        else:
+            print(f"Warning: Baseline file not found: {args.baseline_file}")
+    else:
+        # Try to auto-detect baseline
+        baseline_candidates = [
+            f"data/{args.domain}/eval/{args.dataset}_baseline_results.json",
+            f"data/{args.domain}/eval/{args.dataset}_baseline.json",
+            f"data/{args.domain}/eval/baseline_results.json",
+        ]
+        for candidate in baseline_candidates:
+            if os.path.exists(candidate):
+                with open(candidate) as f:
+                    baseline_data = json.load(f)
+                print(f"Auto-detected baseline: {candidate}")
+                break
+
+    # Print final summary
+    print(f"\n{'='*70}")
+    print(f"EVALUATION SUMMARY - {args.dataset}")
+    print(f"{'='*70}\n")
+
+    # Main metrics
+    pass_k_metric = f"Pass@{args.pass_k}"
+    current_pass_k = eval_stats.get(pass_k_metric, 0)
+    current_avg_reward = eval_stats.get("avg_reward", 0)
+    avg_experiences = results_data["retrieval_stats"]["avg_experiences"]
+
+    print(f"📊 Main Results:")
+    print(f"  • Dataset: {args.dataset}")
+    print(f"  • {pass_k_metric}: {current_pass_k:.2%}")
+    print(f"  • Average Reward: {current_avg_reward:.3f}")
+    print(f"  • Avg Tool Calls: {eval_stats.get('avg_tool_call', 0):.2f}")
+    print(f"  • Avg Experiences Retrieved: {avg_experiences:.1f}")
+
+    # Comparison with baseline
+    if baseline_data:
+        print(f"\n{'='*70}")
+        print(f"📈 COMPARISON WITH BASELINE")
+        print(f"{'='*70}\n")
+
+        baseline_pass_k = baseline_data.get("eval_stats", {}).get(pass_k_metric, 0)
+        baseline_avg_reward = baseline_data.get("eval_stats", {}).get("avg_reward", 0)
+
+        # Calculate improvements
+        pass_k_improvement = current_pass_k - baseline_pass_k
+        pass_k_improvement_pct = (pass_k_improvement / baseline_pass_k * 100) if baseline_pass_k > 0 else 0
+        reward_improvement = current_avg_reward - baseline_avg_reward
+        reward_improvement_pct = (reward_improvement / baseline_avg_reward * 100) if baseline_avg_reward > 0 else 0
+
+        # Token/Experience efficiency
+        baseline_experiences = baseline_data.get("retrieval_stats", {}).get("avg_experiences", 50)  # Assume 50 if not specified
+        experience_reduction = baseline_experiences - avg_experiences
+        experience_reduction_pct = (experience_reduction / baseline_experiences * 100) if baseline_experiences > 0 else 0
+
+        print(f"┌{'─'*68}┐")
+        print(f"│ {'Metric':<30} │ {'Baseline':>12} │ {'Enhanced':>12} │ {'Change':>8} │")
+        print(f"├{'─'*68}┤")
+
+        # Pass@K comparison
+        change_str = f"{pass_k_improvement:+.1%}" if pass_k_improvement != 0 else "  --  "
+        baseline_str = f"{baseline_pass_k:.2%}"
+        enhanced_str = f"{current_pass_k:.2%}"
+        emoji = "🟢" if pass_k_improvement > 0 else "🔴" if pass_k_improvement < 0 else "⚪"
+        print(f"│ {emoji} {pass_k_metric:<28} │ {baseline_str:>12} │ {enhanced_str:>12} │ {change_str:>8} │")
+
+        # Avg Reward comparison
+        change_str = f"{reward_improvement:+.3f}" if reward_improvement != 0 else "  --  "
+        baseline_str = f"{baseline_avg_reward:.3f}"
+        enhanced_str = f"{current_avg_reward:.3f}"
+        emoji = "🟢" if reward_improvement > 0 else "🔴" if reward_improvement < 0 else "⚪"
+        print(f"│ {emoji} Average Reward{'':>16} │ {baseline_str:>12} │ {enhanced_str:>12} │ {change_str:>8} │")
+
+        # Experiences comparison
+        change_str = f"-{experience_reduction:.1f}"
+        baseline_str = f"{baseline_experiences:.1f}"
+        enhanced_str = f"{avg_experiences:.1f}"
+        emoji = "🟢"  # Always good to reduce
+        print(f"│ {emoji} Avg Experiences{'':>15} │ {baseline_str:>12} │ {enhanced_str:>12} │ {change_str:>8} │")
+
+        print(f"└{'─'*68}┘")
+
+        # Key improvements summary
+        print(f"\n✨ Key Improvements:")
+        if pass_k_improvement > 0:
+            print(f"  • Accuracy improved by {pass_k_improvement_pct:+.1f}% ({pass_k_improvement:+.1%})")
+        if experience_reduction > 0:
+            print(f"  • Context reduced by {experience_reduction_pct:.1f}% ({experience_reduction:.1f} fewer experiences)")
+            token_savings = experience_reduction * 30  # Assume 30 tokens per experience
+            print(f"  • Estimated token savings: ~{token_savings:.0f} tokens per problem")
+
+        # Efficiency metric
+        if pass_k_improvement > 0 and experience_reduction > 0:
+            efficiency = pass_k_improvement / (avg_experiences / baseline_experiences)
+            print(f"  • Efficiency gain: {efficiency:.2%} accuracy per unit context")
+
+    else:
+        print(f"\n💡 Tip: To compare with baseline, use --baseline_file or place baseline results at:")
+        print(f"   data/{args.domain}/eval/{args.dataset}_baseline_results.json")
+
+    # Performance by difficulty
+    if difficulty_performance:
+        print(f"\n{'='*70}")
+        print(f"📊 Performance by Difficulty Level")
+        print(f"{'='*70}\n")
+
+        for difficulty in ["easy", "medium", "hard"]:
+            if difficulty in difficulty_performance:
+                stats = difficulty_performance[difficulty]
+                pass_rate = stats["correct"] / stats["total"] if stats["total"] > 0 else 0
+                bar_length = int(pass_rate * 40)
+                bar = "█" * bar_length + "░" * (40 - bar_length)
+                print(f"  {difficulty.capitalize():8s}: {bar} {pass_rate:6.1%} ({stats['correct']}/{stats['total']})")
+
+    # Token efficiency analysis
+    print(f"\n{'='*70}")
+    print(f"💰 Token Efficiency Analysis")
+    print(f"{'='*70}\n")
+
+    tokens_per_experience = 30  # Estimated average
+    baseline_exp_count = baseline_data.get("retrieval_stats", {}).get("avg_experiences", 50) if baseline_data else 50
+    baseline_tokens = baseline_exp_count * tokens_per_experience
+    current_tokens = avg_experiences * tokens_per_experience
+    token_savings = baseline_tokens - current_tokens
+    token_savings_pct = (token_savings / baseline_tokens * 100) if baseline_tokens > 0 else 0
+
+    print(f"  • Baseline context: ~{baseline_tokens:.0f} tokens ({baseline_exp_count:.0f} experiences × {tokens_per_experience})")
+    print(f"  • Current context: ~{current_tokens:.0f} tokens ({avg_experiences:.1f} experiences × {tokens_per_experience})")
+    print(f"  • Token savings: ~{token_savings:.0f} tokens per problem ({token_savings_pct:.1f}% reduction)")
+
+    # Cost estimation (assuming GPT-4 pricing: $0.03/1K input tokens)
+    input_cost_per_1k = 0.03
+    num_problems = len(test_data)
+    total_baseline_cost = (baseline_tokens * num_problems * input_cost_per_1k) / 1000
+    total_current_cost = (current_tokens * num_problems * input_cost_per_1k) / 1000
+    cost_savings = total_baseline_cost - total_current_cost
+
+    print(f"\n  Estimated API cost (input only, GPT-4):")
+    print(f"  • Baseline: ${total_baseline_cost:.2f} ({num_problems} problems × {baseline_tokens:.0f} tokens)")
+    print(f"  • Current: ${total_current_cost:.2f} ({num_problems} problems × {current_tokens:.0f} tokens)")
+    print(f"  • Savings: ${cost_savings:.2f} ({cost_savings/total_baseline_cost*100:.1f}% reduction)")
+
+    print(f"\n{'='*70}")
+    print(f"✅ Evaluation Complete!")
+    print(f"{'='*70}")
+    print(f"\n📁 Output files:")
+    print(f"  • Results: {results_filename}")
+    print(f"  • Retrieval stats: {stats_filename}")
+    print(f"  • Detailed rollouts: {rollout_filename}")
 
 
 if __name__ == "__main__":
@@ -379,6 +533,12 @@ if __name__ == "__main__":
         type=int,
         default=None,
         help="Truncate dataset to first N samples (for testing)"
+    )
+    parser.add_argument(
+        "--baseline_file",
+        type=str,
+        default=None,
+        help="Path to baseline results JSON for comparison (auto-detects if not specified)"
     )
 
     # Rollout parameters
