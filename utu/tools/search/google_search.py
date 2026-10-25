@@ -1,3 +1,5 @@
+import os
+
 import aiohttp
 
 from ...utils import EnvUtils, async_file_cache, get_logger
@@ -13,7 +15,7 @@ class GoogleSearch:
     """
 
     def __init__(self, config: dict = None) -> None:
-        self.serper_url = r"https://google.serper.dev/search"
+        self.serper_url = f"{(os.getenv('SERPER_BASE_URL') or 'https://google.serper.dev').rstrip('/')}/search"
         self.serper_header = {"X-API-KEY": EnvUtils.get_env("SERPER_API_KEY"), "Content-Type": "application/json"}
         config = config or {}
         self.search_params = config.get("search_params", {})

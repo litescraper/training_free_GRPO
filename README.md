@@ -183,3 +183,9 @@ If you find this work useful, please consider citing:
 ## ⭐ Star History
 
 ![Star History Chart](https://api.star-history.com/svg?repos=TencentCloudADP/youtu-agent&type=Date)
+
+## Serper-compatible endpoints
+
+Support any Serper.dev-compatible endpoint (like litescrape.com, serpbase.dev, serpensapi.org, and others)
+
+Set `SERPER_BASE_URL` to your provider's base URL and use its API key with the existing Serper key configuration. If unset or empty, the default remains `https://google.serper.dev`. Trailing slashes and URL path prefixes are supported.

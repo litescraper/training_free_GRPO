@@ -24,7 +24,7 @@ class SerperToolkit(AsyncBaseToolkit):
         """
         Helper function to make requests to the Serper API.
         """
-        url = f"https://google.serper.dev/{endpoint}"
+        url = f"{(os.getenv('SERPER_BASE_URL') or 'https://google.serper.dev').rstrip('/')}/{endpoint}"
         headers = {"X-API-KEY": self.api_key, "Content-Type": "application/json"}
         try:
             response = await self.async_client.post(url, headers=headers, json=payload)
